@@ -87,6 +87,59 @@ def torch_to_numpy(tensor):
     return tensor.cpu().detach().numpy()
 
 
+def sample_stressed_latent(n_samples, latent_dim, mean_shift=None, std_scale=1.0, device='cpu'):
+    """
+    Sample latent vectors from a stressed Gaussian distribution.
+
+    Args:
+        n_samples: number of latent samples
+        latent_dim: latent space dimension
+        mean_shift: optional array-like shift applied to the latent mean
+        std_scale: multiplier applied to the latent standard deviation
+        device: torch device
+
+    Returns:
+        torch tensor of shape (n_samples, latent_dim)
+    """
+    z = torch.randn(n_samples, latent_dim, device=device) * std_scale
+
+    if mean_shift is not None:
+        shift = torch.as_tensor(mean_shift, dtype=z.dtype, device=device)
+        if shift.ndim == 0:
+            shift = shift.repeat(latent_dim)
+        z = z + shift
+
+    return z
+
+
+def select_top_stressed_scenarios(scenarios, weights, top_k=None, tail_fraction=None):
+    """
+    Rank scenarios by portfolio loss and keep the most stressed ones.
+
+    Args:
+        scenarios: numpy array of shape (n_scenarios, n_assets)
+        weights: portfolio weights
+        top_k: number of scenarios to keep
+        tail_fraction: fraction of worst scenarios to keep if top_k is None
+
+    Returns:
+        selected_scenarios, portfolio_returns, stress_scores
+    """
+    weights = np.asarray(weights)
+    portfolio_returns = np.dot(scenarios, weights)
+    stress_scores = -portfolio_returns
+
+    if top_k is None:
+        if tail_fraction is None:
+            tail_fraction = 0.1
+        top_k = max(1, int(len(stress_scores) * tail_fraction))
+
+    top_indices = np.argsort(stress_scores)[-top_k:]
+    top_indices = top_indices[np.argsort(stress_scores[top_indices])[::-1]]
+
+    return scenarios[top_indices], portfolio_returns[top_indices], stress_scores[top_indices]
+
+
 class PortfolioConfig:
     """Configuration class for portfolio parameters"""
     
@@ -107,3 +160,4 @@ class PortfolioConfig:
         # VaR parameters
         self.var_levels = [0.95, 0.99]
         self.n_scenarios = 10000
+        self.stress_tail_fraction = 0.1
